@@ -1,7 +1,5 @@
 package pt.ulisboa.tecnico.hourglass.optimization.util;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -51,6 +49,7 @@ public class SpotInstancesPriceReader {
 
     private static List<DataPoint> parseJSON(File jsonFile){
 
+        /*
         List<DataPoint> result = new ArrayList<DataPoint>();
 
         try {
@@ -73,7 +72,9 @@ public class SpotInstancesPriceReader {
             e.printStackTrace();
         }
 
-        return result;
+        return result;*/
+
+        return null;
     }
 
     private static long getTimeStamp(String timestampStr) throws ParseException {

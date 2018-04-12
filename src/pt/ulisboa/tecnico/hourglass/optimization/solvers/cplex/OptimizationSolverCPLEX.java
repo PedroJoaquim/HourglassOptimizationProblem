@@ -27,9 +27,6 @@ public class OptimizationSolverCPLEX extends OptimizationSolver {
 
         this.cplex = new IloCplex();
 
-        //cplex.setParam(IloCplex.Param.Threads, 8);
-        //cplex.setParam(IloCplex.Param.MIP.Tolerances.MIPGap, 0.1);
-        //cplex.setParam(IloCplex.DoubleParam.TiLim, 50);
 
         IloIntVar[][] assignmentMatrixPerPartition = new IloIntVar[numPartitions][];
         IloIntVar[][] assignmentMatrixPerMachine = new IloIntVar[numMachines][numPartitions];
