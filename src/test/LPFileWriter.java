@@ -1,23 +1,20 @@
 package test;
 
-
 import ilog.concert.IloException;
 import ilog.concert.IloIntExpr;
 import ilog.concert.IloIntVar;
 import ilog.cplex.IloCplex;
-
 import java.io.*;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Scanner;
+import java.util.*;
 import java.util.regex.Pattern;
 
 public class LPFileWriter {
 
+    private static final int RANDOM_NUM_SIMS = 100;
+
     private static final Pattern PATTERN = Pattern.compile("[\t ]");
 
-    private ReducedSymmetricalMatrix<Integer> microPartitionsCrossingEdges;
+    private ReducedSymmetricalMatrixInt microPartitionsCrossingEdges;
 
     private int numMicroPartitions;
 
@@ -26,11 +23,11 @@ public class LPFileWriter {
     public static void main(String[] args) throws IOException, IloException {
 
         LPFileWriter app = new LPFileWriter();
-        app.start(args[0], args[1], Integer.parseInt(args[2]));
+        app.start(args[0], args[1], Integer.parseInt(args[2]), Boolean.parseBoolean(args[3]));
 
     }
 
-    private void start(String inputPath, String outputPath, int numMachines) throws IOException, IloException {
+    private void start(String inputPath, String outputPath, int numMachines, boolean solve) throws IOException, IloException {
 
         this.numMachines = numMachines;
 
@@ -38,14 +35,89 @@ public class LPFileWriter {
 
         //writeProblem(outputPath);
 
-        solveProblem();
+        if(solve){
+            solveProblem();
+        }
+        else {
+            assignRandom();
+        }
+    }
+
+    private void assignRandom() {
+
+        int max = Integer.MIN_VALUE;
+        int min = Integer.MAX_VALUE;
+        long avg = 0;
+
+        int numPartitionsPerMachine = numMicroPartitions / numMachines + (numMicroPartitions % numMachines == 0 ? 0 : 1);
+
+        System.out.println("[INFO] DOING " + RANDOM_NUM_SIMS + " RANDOM GENERATION FOR " + numMicroPartitions + " MICRO PARTITIONS " + numMachines + " MACHINES "
+         + " AND " + numPartitionsPerMachine + " NUM PARTITIONS PER MACHINE");
+
+        Random rnd = new Random();
+
+        for (int i = 0; i < RANDOM_NUM_SIMS; i++) {
+
+            int edgeCut = 0;
+            int rndIndex;
+
+            List<Integer> allMachines = new ArrayList<>(numMachines);
+
+            int[] partitionsAssigned = new int[numMachines];
+
+            int[] partitionsToMachinesMapping = new int[numMicroPartitions];
+
+
+            for (int j = 0; j < numMachines; j++) {
+                allMachines.add(j);
+            }
+
+
+            for (int j = 0; j < numMicroPartitions; j++) {
+
+                while (partitionsAssigned[allMachines.get(rndIndex = rnd.nextInt(allMachines.size()))] >=  numPartitionsPerMachine){
+                    allMachines.remove(rndIndex);
+                }
+
+                partitionsAssigned[allMachines.get(rndIndex)]++;
+                partitionsToMachinesMapping[j] = allMachines.get(rndIndex);
+            }
+
+
+            for (int j = 0; j < numMicroPartitions; j++) {
+                for (int k = j+1; k < numMicroPartitions; k++) {
+                    if(partitionsToMachinesMapping[j] != partitionsToMachinesMapping[k]){
+                        edgeCut += this.microPartitionsCrossingEdges.readValue(j,k);
+                    }
+                }
+            }
+
+            avg += edgeCut;
+
+            if(edgeCut < min){
+                min = edgeCut;
+            }
+
+            if(edgeCut > max){
+                max = edgeCut;
+            }
+        }
+
+        avg = avg/RANDOM_NUM_SIMS;
+
+        System.out.println("[INFO] RANDOM MIN EDGE CUT = " + min);
+        System.out.println("[INFO] RANDOM MAX EDGE CUT = " + max);
+        System.out.println("[INFO] RANDOM AVG EDGE CUT = " + avg);
+
     }
 
     private void solveProblem() throws IloException {
 
+        long start = System.currentTimeMillis();
+
         IloCplex cplex = new IloCplex();
 
-        ReducedSymmetricalMatrix<IloIntVar> microPartitionCoLocation = new ReducedSymmetricalMatrix<>(numMicroPartitions);
+        ReducedSymmetricalMatrixIlo microPartitionCoLocation = new ReducedSymmetricalMatrixIlo(numMicroPartitions);
 
         for (int i = 0; i < numMicroPartitions; i++) {
             for (int j = i + 1; j < numMicroPartitions; j++) {
@@ -112,19 +184,17 @@ public class LPFileWriter {
 
         //minimization problem
 
-        List<IloIntVar> matrix = microPartitionCoLocation.getMatrix();
+        IloIntVar[] matrix = microPartitionCoLocation.getMatrix();
 
-        IloIntVar[] iloVarArray = new IloIntVar[matrix.size()];
-
-        for (int i = 0; i < matrix.size(); i++) {
-            iloVarArray[i] = matrix.get(i);
-        }
-
-        cplex.addMinimize(cplex.scalProd(toPrimitive(this.microPartitionsCrossingEdges.getMatrix()), iloVarArray));
+        cplex.addMinimize(cplex.scalProd(this.microPartitionsCrossingEdges.getMatrix(), matrix));
 
         cplex.setOut(null);
 
         cplex.solve();
+
+        long end = System.currentTimeMillis();
+
+        System.out.println("[INFO] TIME TO SOLVE PROBLEM = " + (end-start)/1000.0d + " secs");
 
 
         System.out.println("**********************SOLUTION***********************");
@@ -157,40 +227,25 @@ public class LPFileWriter {
         }
 
 
-        for (int i = 0; i < numMicroPartitions; i++) {
+       /* for (int i = 0; i < numMicroPartitions; i++) {
             for (int j = i+1; j < numMicroPartitions; j++) {
                 if(cplex.getValue(microPartitionCoLocation.readValue(i,j)) == 0){
                     System.out.println("[INFO] CO LOCATED: " + i + " and " + j);
                 }
             }
-        }
-
-
-        System.out.println("COSTS: " + Arrays.toString(toPrimitive(this.microPartitionsCrossingEdges.getMatrix())));
-
+        }*/
     }
 
     public IloIntExpr variableNegation(IloIntVar var, IloCplex cplex) throws IloException {
         return cplex.sum(1, cplex.negative(var));
     }
 
-    public static int[] toPrimitive(List<Integer> list) {
-
-        int[] result = new int[list.size()];
-        for (int i = 0; i < list.size(); i++) {
-            result[i] = list.get(i);
-        }
-        return result;
-    }
-
-
-
 
     private void writeProblem(String outputPath) throws IOException {
 
         int varIndex = 1;
 
-        ReducedSymmetricalMatrix<Integer> microPartitionCoLocation = new ReducedSymmetricalMatrix<>(numMicroPartitions);
+        ReducedSymmetricalMatrixInt microPartitionCoLocation = new ReducedSymmetricalMatrixInt(numMicroPartitions);
 
         for (int i = 0; i < numMicroPartitions; i++) {
             for (int j = i + 1; j < numMicroPartitions; j++) {
@@ -198,7 +253,7 @@ public class LPFileWriter {
             }
         }
 
-        ReducedSymmetricalMatrix<Integer> microPartitionCoLocationNOT = new ReducedSymmetricalMatrix<>(numMicroPartitions);
+        ReducedSymmetricalMatrixInt microPartitionCoLocationNOT = new ReducedSymmetricalMatrixInt(numMicroPartitions);
 
         for (int i = 0; i < numMicroPartitions; i++) {
             for (int j = i + 1; j < numMicroPartitions; j++) {
@@ -339,7 +394,8 @@ public class LPFileWriter {
 
                 if(++sourceVertex == 0){
                     this.numMicroPartitions = Integer.valueOf(line[0]);
-                    this.microPartitionsCrossingEdges = new ReducedSymmetricalMatrix<>(numMicroPartitions);
+                    System.out.println("[INFO] NUM MICRO PARTITIONS = " + this.numMicroPartitions);
+                    this.microPartitionsCrossingEdges = new ReducedSymmetricalMatrixInt(numMicroPartitions);
                 }
                 else {
 
@@ -363,29 +419,29 @@ public class LPFileWriter {
 
 
 
-    private class ReducedSymmetricalMatrix<V> {
+    private class ReducedSymmetricalMatrixIlo {
 
         private int matrixDim;
 
         private int numEntries;
 
-        private List<V> matrix;
+        private IloIntVar[] matrix;
 
-        public ReducedSymmetricalMatrix(int matrixDim) {
+        public ReducedSymmetricalMatrixIlo(int matrixDim) {
             this.matrixDim = matrixDim;
             this.numEntries = ((matrixDim * matrixDim) - matrixDim)/2;
-            this.matrix = new ArrayList<>(numEntries);
+            this.matrix = new IloIntVar[numEntries];
         }
 
-        public void setValue(int cl, int l, V value){
+        public void setValue(int cl, int l, IloIntVar value){
 
             int idx = convertIndex(cl, l);
 
-            this.matrix.add(idx,value);
+            this.matrix[idx] = value;
         }
 
-        public V readValue(int cl, int l){
-            return this.matrix.get(convertIndex(cl,l));
+        public IloIntVar readValue(int cl, int l){
+            return this.matrix[convertIndex(cl,l)];
         }
 
         private int convertIndex(int cl, int l) {
@@ -404,7 +460,53 @@ public class LPFileWriter {
             return x * matrixDim - ((((x+1) * (x+1)) - (x+1))/2) + (y - (x+1));
         }
 
-        public List<V> getMatrix() {
+        public IloIntVar[] getMatrix() {
+            return matrix;
+        }
+    }
+
+    private class ReducedSymmetricalMatrixInt {
+
+        private int matrixDim;
+
+        private int numEntries;
+
+        private int[] matrix;
+
+        public ReducedSymmetricalMatrixInt(int matrixDim) {
+            this.matrixDim = matrixDim;
+            this.numEntries = ((matrixDim * matrixDim) - matrixDim)/2;
+            this.matrix = new int[numEntries];
+        }
+
+        public void setValue(int cl, int l, int value){
+
+            int idx = convertIndex(cl, l);
+
+            this.matrix[idx] = value;
+        }
+
+        public int readValue(int cl, int l){
+            return this.matrix[convertIndex(cl,l)];
+        }
+
+        private int convertIndex(int cl, int l) {
+
+            int x,y;
+
+            if(cl < l){
+                x = cl;
+                y = l;
+            }
+            else {
+                x = l;
+                y = cl;
+            }
+
+            return x * matrixDim - ((((x+1) * (x+1)) - (x+1))/2) + (y - (x+1));
+        }
+
+        public int[] getMatrix() {
             return matrix;
         }
     }
